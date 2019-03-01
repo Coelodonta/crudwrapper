@@ -22,6 +22,111 @@
 #  
 #  
 
+class MYSQLPythonWrapperGenerator:
+	
+	def indent(self,out,n=1):
+		for i in range(n):
+			out.write("\t")
+	
+	def	processTable(self,out,tableName):
+		out.write("\n# CRUD for table: "+tableName)
+		out.write("\nclass "+tableName+"_CRUD:\n")
+		self.indent(out)
+		out.write("cnx=None\n\n")
+		self.indent(out)
+		out.write("def dbconnect(self, myhost, myuser, mypass, mydbname):\n")
+		self.indent(out,2)
+		out.write("self.cnx = pymysql.connect(user=myuser, password=mypass,host=myhost,database=mydbname)\n\n")
+		self.indent(out)
+		out.write("def close(self):\n")
+		self.indent(out,2)
+		out.write("self.cnx.close()\n\n")
+		
+
+	def	finishTable(self,out):
+		out.write("\n")
+
+	def processProcedure(self,out,procName,args):
+		# Strip open/close parentheses
+		args=args[1:-1]
+		
+		self.indent(out)
+		# Function Signature
+		out.write("def "+procName+"CRUD(self");
+
+		if len(args):
+			parms=[x.strip() for x in args.split(',')]
+			parms=map(lambda x: x.split(' ') , parms)
+			delim=", "
+			for parm in parms:
+				out.write(delim)
+				out.write(parm[1])
+				
+		out.write("):\n")
+		
+		# Function Body
+		self.indent(out,2)
+		out.write("sql=\"CALL "+procName+"(") 
+		if len(args):
+			argLen=len(args.split(","))
+			delim="%s"
+			for i in range(argLen):
+				out.write(delim)
+				delim=", %s"
+				
+		out.write(")\";\n")
+
+		self.indent(out,2)
+		out.write("cursor = self.cnx.cursor(pymysql.cursors.DictCursor)\n")
+		
+		if len(args) < 1:
+			self.indent(out,2)
+			out.write("cursor.execute(sql)\n")
+			
+		else:
+			self.indent(out,2)
+			out.write("cursor.execute(sql,(")
+			parms=[x.strip() for x in args.split(',')]
+			parms=map(lambda x: x.split(' ') , parms)
+			delim=""
+			for parm in parms:
+				out.write(delim)
+				out.write(parm[1])
+				delim=","
+				
+			out.write("))\n")
+
+		if "SelectOne" in procName:
+			self.indent(out,2)
+			out.write("result=cursor.fetchall()\n")
+			self.indent(out,2)
+			out.write("cursor.close()\n")
+			self.indent(out,2)
+			out.write("return result\n")
+			
+		elif "SelectAll" in procName:
+			self.indent(out,2)
+			out.write("result=cursor.fetchall()\n")
+			self.indent(out,2)
+			out.write("cursor.close()\n")
+			self.indent(out,2)
+			out.write("return result\n")
+			
+		else:
+			self.indent(out,2)
+			out.write("result=cursor.rowcount\n")
+			self.indent(out,2)
+			out.write("self.cnx.commit()\n")
+			self.indent(out,2)
+			out.write("cursor.close()\n")
+			self.indent(out,2)
+			out.write("return result\n")
+
+		self.finishProcedure(out)
+
+	def finishProcedure(self,out):
+		out.write("\n")
+
 """
 Generates PHP wrapper classes for stored procedures
 Writes to the file ./PHP_CRUD_MySQL.php
@@ -164,8 +269,9 @@ class MySQLWrapper:
 
 	def wrap(self):
 		php=MySQLPHPWrapperGenerator()
+		py=MYSQLPythonWrapperGenerator()
 		outPHP=open('./PHP_CRUD_MySQL.php','w')
-		outPy=open('./PY_CRUD_MySQL.py','w') # TO DO: Finish Python MySQL
+		outPy=open('./PY_CRUD_MySQL.py','w')
 		tableName=""
 		for line in self.lines:
 			if line.startswith("CREATE PROCEDURE "):
@@ -176,16 +282,22 @@ class MySQLWrapper:
 				print("\t"+procName)
 				#PHP
 				php.processProcedure(outPHP,procName,args)
+				#Python
+				py.processProcedure(outPy,procName,args)
 				
 			elif line.startswith("-- TABLE: "):
 				tableName=line[len("-- TABLE: "):]
 				print("Processing "+tableName)
 				#PHP
 				php.processTable(outPHP,tableName)
+				#Python
+				py.processTable(outPy,tableName)
 
 			elif line.startswith("-- END TABLE:"):
 				#PHP
 				php.finishTable(outPHP)
+				#Python
+				py.finishTable(outPy)
 					
 			elif line.startswith("-- DB: MySQL"):
 				#PHP
@@ -193,7 +305,7 @@ class MySQLWrapper:
 				print(line.replace("--","// CRUD for"),file=outPHP)
 				#Python
 				print(line.replace("--","# CRUD for"),file=outPy)
-				outPy.write("import mysql.connector\n")
+				outPy.write("import pymysql\n")
 		
 		outPHP.write("?>\n")
 		outPHP.close()
